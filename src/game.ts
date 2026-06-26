@@ -1,6 +1,7 @@
 import { UI } from "./ui/ui.ts";
 import { connectQuiz } from "./net/online.ts";
 import { QuizClient } from "./net/quizTransport.ts";
+import type { Board } from "./render/board.ts";
 import type { PlayerView } from "./core/protocol.ts";
 
 type View = "menu" | "lobby" | "question" | "finished";
@@ -14,7 +15,7 @@ export class Game {
   private players: PlayerView[] = [];
   private chosen: number | null = null;
   private lobby?: ReturnType<UI["showLobby"]>;
-  private q?: ReturnType<UI["showQuestion"]>;
+  private board?: Board;
   private leaving = false;
 
   start() { this.menu(); }
@@ -23,6 +24,8 @@ export class Game {
     this.leaving = true;
     this.client?.close();
     this.client = undefined;
+    this.ui.leaveMatch();
+    this.board = undefined;
     this.view = "menu";
     this.ui.showMenu((name, themeId, room) => {
       this.themeId = themeId;
@@ -54,21 +57,26 @@ export class Game {
 
       client.on("question", (m) => {
         this.chosen = null;
+        if (!this.board) { // first question → build the animated board
+          this.board = this.ui.enterMatch();
+          this.board.setPlayers(this.players, this.selfId);
+        }
         this.view = "question";
-        this.q = this.ui.showQuestion({ onAnswer: (i) => { this.chosen = i; client.answer(m.questionId, i); } });
-        this.q.render(m, this.players, this.selfId);
+        this.ui.questionControls(m, (i) => { this.chosen = i; client.answer(m.questionId, i); });
       });
 
       client.on("state", (m) => { this.players = m.players; });
 
       client.on("reveal", (m) => {
         this.players = m.players;
-        this.ui.showReveal(m, this.chosen, this.players, this.selfId);
+        this.board?.update(m.players); // animate the hops
+        this.ui.revealControls(m, this.chosen);
       });
 
       client.on("finish", (m) => {
         this.view = "finished";
-        this.ui.showFinish(m.ranking, this.selfId, () => this.menu());
+        this.ui.finishControls(m.ranking, this.selfId, () => this.menu());
+        this.board?.celebrate();
       });
 
       client.on("error", (m) => this.ui.toast(m.message));
