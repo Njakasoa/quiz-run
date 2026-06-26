@@ -2,7 +2,8 @@ import { h, type El } from "./dom.ts";
 import { THEMES } from "../core/theme.ts";
 import { avatarFor } from "../render/track.ts";
 import { Board } from "../render/board.ts";
-import type { RankingEntry, QuizServerMsg } from "../core/protocol.ts";
+import { GOAL_CASES } from "../core/protocol.ts";
+import type { MatchMode, RankingEntry, CoopResult, QuizServerMsg } from "../core/protocol.ts";
 
 type LobbyMsg = Extract<QuizServerMsg, { k: "lobby" }>;
 type QuestionMsg = Extract<QuizServerMsg, { k: "question" }>;
@@ -57,16 +58,25 @@ export class UI {
   }
 
   // ── lobby ──
-  showLobby(o: { selfId: string; onStart: () => void; onLeave: () => void }) {
+  showLobby(o: { selfId: string; onStart: () => void; onLeave: () => void; onSetMode: (m: MatchMode) => void }) {
     const list = h("div", { class: "players" });
     const startBtn = h("button", { class: "btn big", onclick: o.onStart }, "Lancer la partie") as HTMLButtonElement;
     const codeEl = h("div", { class: "code" }, "····");
     const hint = h("div", { class: "tag" }, "");
+    const modeBtn = (mode: MatchMode, label: string, desc: string) =>
+      h("button", { class: "mode-opt", "data-mode": mode, title: desc, onclick: () => o.onSetMode(mode) },
+        h("b", {}, label), h("small", {}, desc));
+    const modeRow = h("div", { class: "modes" },
+      modeBtn("classic", "Course", "Chacun pour soi"),
+      modeBtn("coop", "Coop / école", "On gagne ensemble"),
+    );
     this.mount(h("div", { class: "screen" },
       h("div", { class: "card" },
         h("div", { class: "brand small" }, "SALON"),
         h("div", { class: "tag" }, "Partage ce code avec tes amis :"),
         codeEl,
+        h("label", { class: "lbl" }, "Mode de jeu"),
+        modeRow,
         list,
         hint,
         h("div", { class: "row center" }, startBtn, h("button", { class: "btn ghost", onclick: o.onLeave }, "Quitter")),
@@ -81,6 +91,11 @@ export class UI {
         p.id === m.hostId ? h("span", { class: "host" }, "👑 hôte") : "",
       )));
       const isHost = m.selfId === m.hostId;
+      // reflect the selected mode; only the host can change it
+      modeRow.querySelectorAll<HTMLButtonElement>(".mode-opt").forEach((b) => {
+        b.classList.toggle("on", b.getAttribute("data-mode") === m.mode);
+        b.disabled = !isHost;
+      });
       startBtn.style.display = isHost ? "" : "none";
       hint.textContent = isHost
         ? (m.players.length < 2 ? "Tu peux lancer seul pour tester, ou attendre des joueurs." : "")
@@ -153,23 +168,41 @@ export class UI {
     }
   }
 
-  finishControls(ranking: RankingEntry[], selfId: string, onMenu: () => void) {
+  finishControls(o: {
+    mode: MatchMode; ranking: RankingEntry[]; coop?: CoopResult;
+    selfId: string; isHost: boolean; onRematch: () => void; onMenu: () => void;
+  }) {
     const controls = this.controls;
     if (!controls) return;
-    const mine = ranking.find((r) => r.id === selfId);
-    const won = mine?.rank === 1;
+    let title: string, sub: string;
+    if (o.mode === "coop") {
+      const c = o.coop;
+      title = c?.allFinished ? "🎉 Bravo l'équipe !" : "Bien joué l'équipe !";
+      sub = c?.allFinished ? "Tout le monde est arrivé au bout !"
+          : c ? `${c.arrived}/${c.total} arrivés — réessayez pour finir tous ensemble !` : "";
+    } else {
+      const mine = o.ranking.find((r) => r.id === o.selfId);
+      title = mine?.rank === 1 ? "🏆 GAGNÉ !" : "Terminé !";
+      sub = mine ? `Tu finis #${mine.rank} / ${o.ranking.length}.` : "";
+    }
     controls.innerHTML = "";
     controls.append(
-      h("div", { class: "brand small" }, won ? "🏆 GAGNÉ !" : "Terminé !"),
+      h("div", { class: "brand small" }, title),
+      sub ? h("div", { class: "tag" }, sub) : "",
       h("div", { class: "ranking" },
-        ...ranking.slice(0, 8).map((r) => h("div", { class: "rank-row" + (r.id === selfId ? " me" : "") },
-          h("span", {}, `#${r.rank}`),
+        ...o.ranking.slice(0, 8).map((r) => h("div", { class: "rank-row" + (r.id === o.selfId ? " me" : "") },
+          h("span", {}, o.mode === "coop" ? (r.pos >= GOAL_CASES ? "✅" : "🏃") : `#${r.rank}`),
           h("span", { class: "pa" }, avatarFor(r.id)),
           h("span", { class: "grow" }, r.name),
           h("span", { class: "muted" }, `${r.pos} cases`),
         )),
       ),
-      h("button", { class: "btn big", onclick: onMenu }, "Retour au menu"),
+      h("div", { class: "row center" },
+        o.isHost
+          ? h("button", { class: "btn big", onclick: o.onRematch }, "Rejouer")
+          : h("div", { class: "tag" }, "L'hôte peut relancer…"),
+        h("button", { class: "btn ghost", onclick: o.onMenu }, "Menu"),
+      ),
     );
   }
 
