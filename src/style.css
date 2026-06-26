@@ -65,6 +65,14 @@ body {
 .player .host { margin-left: auto; color: var(--brand); font-size: .85rem; }
 .pa { font-size: 1.3rem; }
 
+.modes { display: flex; gap: 8px; margin-bottom: 6px; }
+.mode-opt { flex: 1; display: flex; flex-direction: column; gap: 2px; align-items: center; padding: 10px 8px; border-radius: 14px; border: 2px solid var(--line); background: #f3f7ff; font: inherit; color: var(--ink); cursor: pointer; }
+.mode-opt b { font-weight: 800; }
+.mode-opt small { color: #7384a6; font-size: .72rem; }
+.mode-opt.on { background: var(--brand2); border-color: var(--brand2); }
+.mode-opt.on small { color: #7a5a12; }
+.mode-opt:disabled { cursor: default; opacity: .8; }
+
 /* match layout: animated board (top) + swappable controls (bottom).
    Full-viewport overlay so it ignores #app's centering + 16px padding (which
    otherwise made a 100dvh child overflow the bottom by ~32px). */

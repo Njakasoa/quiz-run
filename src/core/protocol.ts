@@ -5,6 +5,7 @@
  */
 
 export type MatchPhase = "lobby" | "question" | "reveal" | "finished";
+export type MatchMode = "classic" | "coop";
 
 export interface PlayerView {
   id: string;
@@ -21,13 +22,18 @@ export interface RankingEntry {
   pos: number;
 }
 
+export interface CoopReveal { perfect: boolean; helped?: string }
+export interface CoopResult { allFinished: boolean; arrived: number; total: number }
+
 export type QuizClientMsg =
   | { k: "hello"; name: string }
+  | { k: "setMode"; mode: MatchMode }
   | { k: "start"; themeId: string }
-  | { k: "answer"; questionId: string; choiceIndex: number };
+  | { k: "answer"; questionId: string; choiceIndex: number }
+  | { k: "rematch" };
 
 export type QuizServerMsg =
-  | { k: "lobby"; code: string; hostId: string; selfId: string; players: PlayerView[] }
+  | { k: "lobby"; code: string; hostId: string; selfId: string; mode: MatchMode; players: PlayerView[] }
   | {
       k: "question";
       questionId: string;
@@ -38,9 +44,9 @@ export type QuizServerMsg =
       durationMs: number;
       startedAt: number;
     }
-  | { k: "reveal"; questionId: string; answerIndex: number; explanation?: string; players: PlayerView[] }
+  | { k: "reveal"; questionId: string; answerIndex: number; explanation?: string; players: PlayerView[]; coop?: CoopReveal }
   | { k: "state"; phase: MatchPhase; players: PlayerView[] }
-  | { k: "finish"; ranking: RankingEntry[] }
+  | { k: "finish"; mode: MatchMode; ranking: RankingEntry[]; coop?: CoopResult }
   | { k: "error"; message: string };
 
 export const GOAL_CASES = 30;

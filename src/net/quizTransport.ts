@@ -1,4 +1,4 @@
-import type { QuizClientMsg, QuizServerMsg } from "../core/protocol.ts";
+import type { MatchMode, QuizClientMsg, QuizServerMsg } from "../core/protocol.ts";
 
 type Handlers = {
   [M in QuizServerMsg as M["k"]]?: (msg: M) => void;
@@ -25,8 +25,10 @@ export class QuizClient {
     return this;
   }
 
+  setMode(mode: MatchMode) { this.send({ k: "setMode", mode }); }
   start(themeId: string) { this.send({ k: "start", themeId }); }
   answer(questionId: string, choiceIndex: number) { this.send({ k: "answer", questionId, choiceIndex }); }
+  rematch() { this.send({ k: "rematch" }); }
   close() { try { this.ws.close(); } catch { /* */ } }
 
   private send(m: QuizClientMsg) {

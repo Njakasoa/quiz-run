@@ -16,6 +16,7 @@ export class Game {
   private chosen: number | null = null;
   private lobby?: ReturnType<UI["showLobby"]>;
   private board?: Board;
+  private isHost = false;
   private leaving = false;
 
   start() { this.menu(); }
@@ -44,12 +45,16 @@ export class Game {
       client.on("lobby", (m) => {
         this.selfId = m.selfId;
         this.players = m.players;
+        this.isHost = m.selfId === m.hostId;
         if (this.view !== "lobby") {
+          // coming back from a match (rematch) → tear down the board first
+          if (this.board) { this.ui.leaveMatch(); this.board = undefined; }
           this.view = "lobby";
           this.lobby = this.ui.showLobby({
             selfId: m.selfId,
             onStart: () => client.start(this.themeId),
             onLeave: () => this.menu(),
+            onSetMode: (mode) => client.setMode(mode),
           });
         }
         this.lobby!.render(m);
@@ -71,12 +76,19 @@ export class Game {
         this.players = m.players;
         this.board?.update(m.players); // animate the hops
         this.ui.revealControls(m, this.chosen);
+        if (m.coop?.perfect) { this.board?.celebrate(); this.ui.toast("Manche parfaite ! 🎉"); }
+        else if (m.coop?.helped) this.ui.toast(`L'équipe pousse ${m.coop.helped} 💪`);
       });
 
       client.on("finish", (m) => {
         this.view = "finished";
-        this.ui.finishControls(m.ranking, this.selfId, () => this.menu());
-        this.board?.celebrate();
+        this.ui.finishControls({
+          mode: m.mode, ranking: m.ranking, coop: m.coop,
+          selfId: this.selfId, isHost: this.isHost,
+          onRematch: () => client.rematch(),
+          onMenu: () => this.menu(),
+        });
+        if (m.mode !== "coop" || m.coop?.allFinished) this.board?.celebrate();
       });
 
       client.on("error", (m) => this.ui.toast(m.message));
