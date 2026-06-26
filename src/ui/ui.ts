@@ -1,7 +1,8 @@
 import { h, type El } from "./dom.ts";
 import { THEMES } from "../core/theme.ts";
-import { trackEl, avatarFor } from "../render/track.ts";
-import type { PlayerView, RankingEntry, QuizServerMsg } from "../core/protocol.ts";
+import { avatarFor } from "../render/track.ts";
+import { Board } from "../render/board.ts";
+import type { RankingEntry, QuizServerMsg } from "../core/protocol.ts";
 
 type LobbyMsg = Extract<QuizServerMsg, { k: "lobby" }>;
 type QuestionMsg = Extract<QuizServerMsg, { k: "question" }>;
@@ -9,6 +10,8 @@ type RevealMsg = Extract<QuizServerMsg, { k: "reveal" }>;
 
 export class UI {
   private screen?: El;
+  private controls?: El;   // swappable area below the persistent board
+  private boardObj?: Board;
   constructor(private root: El) {}
 
   private mount(el: El) { this.screen?.remove(); this.screen = el; this.root.append(el); }
@@ -86,81 +89,86 @@ export class UI {
     return { render };
   }
 
-  // ── question ──
-  showQuestion(o: { onAnswer: (choiceIndex: number) => void }) {
-    const head = h("div", { class: "q-head" });
-    const prompt = h("div", { class: "q-prompt" });
-    const choices = h("div", { class: "choices" });
-    const bar = h("div", { class: "timer-fill" });
-    const board = h("div", { class: "board" });
-    this.mount(h("div", { class: "screen" },
-      h("div", { class: "q-wrap" },
-        head,
-        h("div", { class: "timer" }, bar),
-        prompt,
-        choices,
-        board,
-      ),
-    ));
-    const C = ["a", "b", "c", "d"];
-    const render = (m: QuestionMsg, players: PlayerView[], selfId: string) => {
-      head.textContent = `Question ${m.index} / ${m.total}`;
-      prompt.textContent = m.prompt;
-      board.innerHTML = ""; board.append(trackEl(players, selfId));
-      choices.innerHTML = "";
-      let answered = false;
-      m.choices.forEach((c, i) => {
-        const b = h("button", { class: `choice c-${C[i % 4]}`, onclick: () => {
-          if (answered) return;
-          answered = true;
-          (b as HTMLButtonElement).classList.add("picked");
-          choices.querySelectorAll("button").forEach((x) => ((x as HTMLButtonElement).disabled = true));
-          o.onAnswer(i);
-        } }, c);
-        choices.append(b);
-      });
-      // timer animation
-      const remain = Math.max(0, m.durationMs - (Date.now() - m.startedAt));
-      bar.style.transition = "none"; bar.style.width = `${(remain / m.durationMs) * 100}%`;
-      requestAnimationFrame(() => { bar.style.transition = `width ${remain}ms linear`; bar.style.width = "0%"; });
-    };
-    return { render };
+  // ── match (persistent animated board + swappable controls) ──
+  get board() { return this.boardObj; }
+
+  enterMatch(): Board {
+    const boardHost = h("div", { class: "board-host" });
+    const controls = h("div", { class: "controls" });
+    this.controls = controls;
+    this.mount(h("div", { class: "match" }, boardHost, controls));
+    const board = new Board();
+    this.boardObj = board;
+    void board.mount(boardHost);
+    return board;
   }
 
-  // ── reveal (overlay on the question screen) ──
-  showReveal(m: RevealMsg, chosen: number | null, players: PlayerView[], selfId: string) {
-    const choices = this.root.querySelectorAll<HTMLButtonElement>(".choice");
-    choices.forEach((b, i) => {
+  leaveMatch() {
+    this.boardObj?.destroy();
+    this.boardObj = undefined;
+    this.controls = undefined;
+  }
+
+  questionControls(m: QuestionMsg, onAnswer: (choiceIndex: number) => void) {
+    const controls = this.controls;
+    if (!controls) return;
+    const bar = h("div", { class: "timer-fill" });
+    const choices = h("div", { class: "choices" });
+    controls.innerHTML = "";
+    controls.append(
+      h("div", { class: "q-head" }, `Question ${m.index} / ${m.total}`),
+      h("div", { class: "timer" }, bar),
+      h("div", { class: "q-prompt" }, m.prompt),
+      choices,
+    );
+    const C = ["a", "b", "c", "d"];
+    let answered = false;
+    m.choices.forEach((c, i) => {
+      const b = h("button", { class: `choice c-${C[i % 4]}`, onclick: () => {
+        if (answered) return;
+        answered = true;
+        b.classList.add("picked");
+        choices.querySelectorAll("button").forEach((x) => ((x as HTMLButtonElement).disabled = true));
+        onAnswer(i);
+      } }, c);
+      choices.append(b);
+    });
+    const remain = Math.max(0, m.durationMs - (Date.now() - m.startedAt));
+    bar.style.transition = "none"; bar.style.width = `${(remain / m.durationMs) * 100}%`;
+    requestAnimationFrame(() => { bar.style.transition = `width ${remain}ms linear`; bar.style.width = "0%"; });
+  }
+
+  revealControls(m: RevealMsg, chosen: number | null) {
+    const controls = this.controls;
+    if (!controls) return;
+    controls.querySelectorAll<HTMLButtonElement>(".choice").forEach((b, i) => {
       b.disabled = true;
       if (i === m.answerIndex) b.classList.add("correct");
       else if (i === chosen) b.classList.add("wrong");
     });
-    const board = this.root.querySelector(".board");
-    if (board) { board.innerHTML = ""; board.append(trackEl(players, selfId)); }
-    const expl = m.explanation ? h("div", { class: "explain" }, m.explanation) : null;
-    const wrap = this.root.querySelector(".q-wrap");
-    if (wrap && expl) { wrap.querySelector(".explain")?.remove(); wrap.append(expl); }
+    if (m.explanation && !controls.querySelector(".explain")) {
+      controls.append(h("div", { class: "explain" }, m.explanation));
+    }
   }
 
-  // ── finish ──
-  showFinish(ranking: RankingEntry[], selfId: string, onMenu: () => void) {
+  finishControls(ranking: RankingEntry[], selfId: string, onMenu: () => void) {
+    const controls = this.controls;
+    if (!controls) return;
     const mine = ranking.find((r) => r.id === selfId);
     const won = mine?.rank === 1;
-    this.mount(h("div", { class: "screen" },
-      h("div", { class: "card" },
-        h("div", { class: "brand" }, won ? "🏆 GAGNÉ !" : "Terminé !"),
-        h("div", { class: "tag" }, mine ? `Tu finis #${mine.rank} sur ${ranking.length}.` : "Partie terminée."),
-        h("div", { class: "ranking" },
-          ...ranking.slice(0, 8).map((r) => h("div", { class: "rank-row" + (r.id === selfId ? " me" : "") },
-            h("span", {}, `#${r.rank}`),
-            h("span", { class: "pa" }, avatarFor(r.id)),
-            h("span", { class: "grow" }, r.name),
-            h("span", { class: "muted" }, `${r.pos} cases`),
-          )),
-        ),
-        h("button", { class: "btn big", onclick: onMenu }, "Retour au menu"),
+    controls.innerHTML = "";
+    controls.append(
+      h("div", { class: "brand small" }, won ? "🏆 GAGNÉ !" : "Terminé !"),
+      h("div", { class: "ranking" },
+        ...ranking.slice(0, 8).map((r) => h("div", { class: "rank-row" + (r.id === selfId ? " me" : "") },
+          h("span", {}, `#${r.rank}`),
+          h("span", { class: "pa" }, avatarFor(r.id)),
+          h("span", { class: "grow" }, r.name),
+          h("span", { class: "muted" }, `${r.pos} cases`),
+        )),
       ),
-    ));
+      h("button", { class: "btn big", onclick: onMenu }, "Retour au menu"),
+    );
   }
 
   toast(msg: string) {
