@@ -120,6 +120,7 @@ export class UI {
       h("div", { class: "timer" }, bar),
       h("div", { class: "q-prompt" }, m.prompt),
       choices,
+      h("div", { class: "explain" }), // reserved slot → no layout jump on reveal
     );
     const C = ["a", "b", "c", "d"];
     let answered = false;
@@ -146,8 +147,9 @@ export class UI {
       if (i === m.answerIndex) b.classList.add("correct");
       else if (i === chosen) b.classList.add("wrong");
     });
-    if (m.explanation && !controls.querySelector(".explain")) {
-      controls.append(h("div", { class: "explain" }, m.explanation));
+    if (m.explanation) {
+      const slot = controls.querySelector(".explain");
+      if (slot) { slot.textContent = m.explanation; slot.classList.add("show"); }
     }
   }
 
